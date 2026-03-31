@@ -288,6 +288,13 @@ input[type=number]{-moz-appearance:textfield}
       <div class="setting-field"><label>Trail Step (pips)</label><input type="number" id="setTrailStep" value="30" step="any"></div>
       <div class="setting-field"><label>Trail Gap (pips)</label><input type="number" id="setTrailGap" value="10" step="any"></div>
       <div class="setting-field"><label>Trail Activation (pips)</label><input type="number" id="setTrailAct" value="15" step="any"></div>
+      <div class="glow-line" style="background:linear-gradient(90deg,transparent,rgba(255,215,0,.4),transparent)"></div>
+      <div class="section-title" style="letter-spacing:3px;margin-bottom:12px">BREAKOUT (BO)</div>
+      <div class="setting-field"><label>Max Entry Utama (0=unlimited)</label><input type="number" id="setMaxEntry" value="0" step="1"></div>
+      <div class="setting-field"><label>Lot BO Entry</label><input type="number" id="setBOLot" value="0.1" step="any"></div>
+      <div class="setting-field"><label>Grid BO (pips)</label><input type="number" id="setBOGrid" value="10" step="any"></div>
+      <div class="setting-field"><label>TP BO Single (pips)</label><input type="number" id="setBOTP" value="30" step="any"></div>
+      <div class="setting-field"><label>Max BO Entry</label><input type="number" id="setBOMax" value="10" step="1"></div>
       <button class="btn btn-cyan" style="margin-top:4px" onclick="saveSettings()" id="saveBtn">💾 SIMPAN SETTINGS</button>
       <div class="info-settings">ℹ️ Settings akan dikirim ke EA pada polling berikutnya (maks 5 detik).</div>
     </div>
@@ -591,9 +598,14 @@ async function saveSettings() {
   const settings = {
     cut_loss: document.getElementById('setCutLoss').value,
     main_lot: document.getElementById('setMainLot').value,
+    max_entry: document.getElementById('setMaxEntry').value,
     trail_step: document.getElementById('setTrailStep').value,
     trail_gap: document.getElementById('setTrailGap').value,
     trail_activation: document.getElementById('setTrailAct').value,
+    bo_lot: document.getElementById('setBOLot').value,
+    bo_grid_pips: document.getElementById('setBOGrid').value,
+    bo_tp_pips: document.getElementById('setBOTP').value,
+    bo_max_entry: document.getElementById('setBOMax').value,
   };
 
   if (MODE === 'demo') {
