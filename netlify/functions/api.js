@@ -5,24 +5,30 @@ var DATA_DIR = "/tmp/ea-data";
 var API_SECRET = "LP_ALGO_2025_SECRET_KEY";
 var ALLOWED_ACCOUNTS = [159956643, 204122585];
 
+// Global cache - persists between warm invocations on same instance
+var CACHE = {};
+
 function ensureDir() {
   try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {}
 }
 
-function getData(key) {
-  try {
-    var file = path.join(DATA_DIR, key + ".json");
-    if (!fs.existsSync(file)) return null;
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch(e) { return null; }
-}
-
 function setData(key, val) {
+  CACHE[key] = val;
   try {
     ensureDir();
     fs.writeFileSync(path.join(DATA_DIR, key + ".json"), JSON.stringify(val));
-    return true;
-  } catch(e) { return false; }
+  } catch(e) {}
+}
+
+function getData(key) {
+  if (CACHE[key]) return CACHE[key];
+  try {
+    var file = path.join(DATA_DIR, key + ".json");
+    if (!fs.existsSync(file)) return null;
+    var data = JSON.parse(fs.readFileSync(file, "utf8"));
+    CACHE[key] = data;
+    return data;
+  } catch(e) { return null; }
 }
 
 function isAllowed(id) {
@@ -34,8 +40,8 @@ function isAllowed(id) {
   return false;
 }
 
-exports.handler = async function(event, context) {
-  var headers = {
+exports.handler = async function(event) {
+  var H = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -43,7 +49,7 @@ exports.handler = async function(event, context) {
   };
 
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers: headers, body: "{}" };
+    return { statusCode: 200, headers: H, body: "{}" };
   }
 
   var params = event.queryStringParameters || {};
@@ -52,37 +58,52 @@ exports.handler = async function(event, context) {
   var apiKey = params.api_key || "";
 
   if (apiKey !== API_SECRET) {
-    return { statusCode: 403, headers: headers, body: JSON.stringify({ error: "Invalid API key" }) };
+    return { statusCode: 403, headers: H, body: JSON.stringify({ error: "Invalid API key" }) };
   }
 
-  function ok(data) {
-    return { statusCode: 200, headers: headers, body: JSON.stringify(data) };
-  }
-  function err(data, code) {
-    return { statusCode: code || 400, headers: headers, body: JSON.stringify(data) };
-  }
+  function ok(data) { return { statusCode: 200, headers: H, body: JSON.stringify(data) }; }
+  function err(data, code) { return { statusCode: code || 400, headers: H, body: JSON.stringify(data) }; }
 
   try {
+
+    // ==================== LOGIN ====================
     if (action === "login") {
       if (!accountId) return err({ error: "account_id required" });
-      if (!isAllowed(accountId)) return err({ error: "Account not authorized", account_id: accountId }, 403);
-      setData("session_" + accountId, { account_id: accountId, time: new Date().toISOString() });
+      if (!isAllowed(accountId)) return err({ error: "Account not authorized" }, 403);
       return ok({ success: true, account_id: accountId, message: "Login berhasil" });
     }
 
+    // ==================== STATUS (EA POST + Panel GET) ====================
     if (action === "status") {
       if (!accountId) return err({ error: "account_id required" });
+
       if (event.httpMethod === "POST") {
+        // EA kirim status → simpan + RETURN pending command
         var body = {};
         try { body = JSON.parse(event.body || "{}"); } catch(e) { return err({ error: "Invalid JSON" }); }
+        
         setData("status_" + accountId, {
           account_id: accountId,
           ea_online: true,
           data: body,
           updated_at: new Date().toISOString()
         });
-        return ok({ success: true, stored: true });
+
+        // Cek apakah ada pending command → kirim balik ke EA
+        var pendingCmd = getData("command_" + accountId);
+        var cmdResponse = { cmd: "NONE" };
+        if (pendingCmd && !pendingCmd.executed) {
+          cmdResponse = { cmd: pendingCmd.cmd, params: pendingCmd.params || {} };
+          // Mark as executed
+          pendingCmd.executed = true;
+          pendingCmd.executed_at = new Date().toISOString();
+          setData("command_" + accountId, pendingCmd);
+        }
+
+        return ok({ success: true, pending_cmd: cmdResponse });
+      
       } else {
+        // Panel GET status
         var data = getData("status_" + accountId);
         if (!data) return ok({ account_id: accountId, ea_online: false, data: null });
         var age = Date.now() - new Date(data.updated_at || "2000-01-01").getTime();
@@ -91,12 +112,16 @@ exports.handler = async function(event, context) {
       }
     }
 
+    // ==================== COMMAND (Panel POST + EA GET) ====================
     if (action === "command") {
       if (!accountId) return err({ error: "account_id required" });
+
       if (event.httpMethod === "POST") {
+        // Panel kirim command
         var cbody = {};
         try { cbody = JSON.parse(event.body || "{}"); } catch(e) { return err({ error: "Invalid JSON" }); }
         if (!cbody.cmd) return err({ error: "cmd required" });
+        
         setData("command_" + accountId, {
           account_id: accountId,
           cmd: cbody.cmd,
@@ -105,24 +130,27 @@ exports.handler = async function(event, context) {
           sent_at: new Date().toISOString()
         });
         return ok({ success: true, cmd: cbody.cmd });
+      
       } else {
+        // EA GET command (backup, primary delivery via status response)
         var cdata = getData("command_" + accountId);
         if (!cdata || cdata.executed) return ok({ cmd: "NONE" });
         return ok(cdata);
       }
     }
 
+    // ==================== ACK ====================
     if (action === "ack") {
       if (!accountId) return err({ error: "account_id required" });
       var adata = getData("command_" + accountId);
       if (adata) {
         adata.executed = true;
-        adata.executed_at = new Date().toISOString();
         setData("command_" + accountId, adata);
       }
       return ok({ success: true });
     }
 
+    // ==================== SETTINGS ====================
     if (action === "settings") {
       if (!accountId) return err({ error: "account_id required" });
       if (event.httpMethod === "POST") {
@@ -144,7 +172,8 @@ exports.handler = async function(event, context) {
       return ok({ success: true });
     }
 
-    return ok({ name: "LP Algo Remote Control API", version: "2.0", status: "running", storage: "tmpfs", time: new Date().toISOString() });
+    // ==================== DEFAULT ====================
+    return ok({ name: "LP Algo Remote Control API", version: "3.0", status: "running", time: new Date().toISOString() });
 
   } catch(e) {
     return err({ error: "Server error: " + e.message }, 500);
