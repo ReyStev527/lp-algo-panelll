@@ -547,13 +547,17 @@ async function sendCmd(cmd) {
     else if (cmd === 'CLOSE_ALL') { demoData.buy_positions = '0'; demoData.sell_positions = '0'; demoData.buy_lots = '0.00'; demoData.sell_lots = '0.00'; demoData.buy_profit = '0.00'; demoData.sell_profit = '0.00'; demoData.total_profit = '0.00'; addLog('⚠️ Close ALL positions'); }
     updatePowerUI();
   } else {
-    try {
-      await apiCall('command', 'POST', { cmd });
-      addLog('📱 Command: ' + cmd);
-      if (cmd === 'ON') eaOn = true;
-      if (cmd === 'OFF') eaOn = false;
-      setTimeout(poll, 2000);
-    } catch { addLog('❌ Gagal: ' + cmd); }
+    // Kirim command 5x dengan jeda 3 detik untuk memastikan sampai
+    addLog('📱 Sending: ' + cmd + '...');
+    if (cmd === 'ON') eaOn = true;
+    if (cmd === 'OFF') eaOn = false;
+    updatePowerUI();
+    for (var retry = 0; retry < 5; retry++) {
+      try { await apiCall('command', 'POST', { cmd: cmd }); } catch(e) {}
+      if (retry < 4) await new Promise(function(r) { setTimeout(r, 3000); });
+    }
+    addLog('✅ Command sent: ' + cmd);
+    setTimeout(poll, 2000);
   }
   cmdLoading = false;
   hideConfirm();
