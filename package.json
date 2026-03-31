@@ -1,8 +1,4 @@
 {
   "name": "lp-algo-panel",
-  "version": "4.0.0",
-  "type": "module",
-  "dependencies": {
-    "@netlify/blobs": "^8.1.0"
-  }
+  "version": "4.0.0"
 }
