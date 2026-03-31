@@ -407,8 +407,8 @@ async function doLogin() {
     API_URL = document.getElementById('apiUrlInput').value.trim();
     if (!API_URL) { showError('URL API tidak boleh kosong'); btn.disabled = false; btn.textContent = '🔐 LOGIN'; return; }
     try {
-      const res = await apiCall('login', 'POST');
       ACCOUNT_ID = acc;
+      const res = await apiCall('login', 'POST');
       if (res.success) { eaOn = true; showDash(); }
       else showError(res.error || 'Login gagal');
     } catch (e) { showError('Tidak bisa konek ke server.\nCek URL API dan koneksi internet.'); }
