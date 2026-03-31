@@ -1,11 +1,10 @@
 [build]
-  publish = "public"
+  publish = "."
   functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
 
-# Redirect /api/* ke Netlify Function
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
