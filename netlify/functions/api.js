@@ -39,11 +39,13 @@ exports.handler = async function(event, context) {
     return { statusCode: code || 400, headers: headers, body: JSON.stringify(data) };
   }
 
-  // Simple in-memory store using Netlify Blobs
   var store = null;
   try {
-    var blobs = require("@netlify/blobs");
-    store = blobs.getStore("ea-data");
+    var blobs = await import("@netlify/blobs");
+    var getStore = blobs.getStore || (blobs.default && blobs.default.getStore);
+    if (getStore) {
+      store = getStore("ea-data");
+    }
   } catch(e) {
     store = null;
   }
@@ -54,28 +56,25 @@ exports.handler = async function(event, context) {
   }
 
   async function setData(key, val) {
-    if (!store) return;
-    try { await store.setJSON(key, val); } catch(e) { /* ignore */ }
+    if (!store) return false;
+    try { await store.setJSON(key, val); return true; } catch(e) { return false; }
   }
 
   try {
-    // LOGIN
     if (action === "login") {
       if (!accountId) return err({ error: "account_id required" });
       if (!isAllowed(accountId)) return err({ error: "Account not authorized", account_id: accountId }, 403);
-      var token = Math.random().toString(36).substring(2);
-      await setData("session_" + accountId, { account_id: accountId, token: token, login_time: new Date().toISOString() });
-      return ok({ success: true, account_id: accountId, token: token, message: "Login berhasil" });
+      await setData("session_" + accountId, { account_id: accountId });
+      return ok({ success: true, account_id: accountId, message: "Login berhasil", storage: store ? "blobs" : "none" });
     }
 
-    // STATUS
     if (action === "status") {
       if (!accountId) return err({ error: "account_id required" });
       if (event.httpMethod === "POST") {
         var body = {};
         try { body = JSON.parse(event.body || "{}"); } catch(e) { return err({ error: "Invalid JSON" }); }
-        await setData("status_" + accountId, { account_id: accountId, ea_online: true, data: body, updated_at: new Date().toISOString() });
-        return ok({ success: true });
+        var saved = await setData("status_" + accountId, { account_id: accountId, ea_online: true, data: body, updated_at: new Date().toISOString() });
+        return ok({ success: true, stored: saved });
       } else {
         var data = await getData("status_" + accountId);
         if (!data) return ok({ account_id: accountId, ea_online: false, data: null });
@@ -85,7 +84,6 @@ exports.handler = async function(event, context) {
       }
     }
 
-    // COMMAND
     if (action === "command") {
       if (!accountId) return err({ error: "account_id required" });
       if (event.httpMethod === "POST") {
@@ -101,19 +99,16 @@ exports.handler = async function(event, context) {
       }
     }
 
-    // ACK
     if (action === "ack") {
       if (!accountId) return err({ error: "account_id required" });
       var adata = await getData("command_" + accountId);
       if (adata) {
         adata.executed = true;
-        adata.executed_at = new Date().toISOString();
         await setData("command_" + accountId, adata);
       }
       return ok({ success: true });
     }
 
-    // SETTINGS
     if (action === "settings") {
       if (!accountId) return err({ error: "account_id required" });
       if (event.httpMethod === "POST") {
@@ -123,12 +118,11 @@ exports.handler = async function(event, context) {
         return ok({ success: true });
       } else {
         var sdata = await getData("settings_" + accountId);
-        if (!sdata) return ok({ settings: null });
+        if (!sdata) return ok({ settings: null, applied: true });
         return ok(sdata);
       }
     }
 
-    // SETTINGS ACK
     if (action === "settings_ack") {
       if (!accountId) return err({ error: "account_id required" });
       var sadata = await getData("settings_" + accountId);
@@ -136,10 +130,9 @@ exports.handler = async function(event, context) {
       return ok({ success: true });
     }
 
-    // DEFAULT
-    return ok({ name: "LP Algo Remote Control API", version: "1.0", status: "running", time: new Date().toISOString() });
+    return ok({ name: "LP Algo Remote Control API", version: "1.1", status: "running", storage: store ? "blobs" : "none", time: new Date().toISOString() });
 
   } catch(e) {
-    return err({ error: "Internal server error" }, 500);
+    return err({ error: "Server error: " + e.message }, 500);
   }
 };
